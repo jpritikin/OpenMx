@@ -1865,6 +1865,7 @@ static void slsqpb_(int *m, int *meq, int *la, int *
 
     /* Function Body */
     if (*mode == -1) {
+	    printf("BFGS update for iter %d\n", *iter);
 	goto L260;
     } else if (*mode == 0) {
 	goto L100;
@@ -2508,15 +2509,21 @@ nlopt_result nlopt_slsqp(unsigned n, nlopt_func f, void *f_data,
 		  if (want_grad) {
 			  newgrad = grad;
 			  newcgrad = cgradtmp;
+		  } else {
+			  printf("mode=%d, line search for iter=%d\n", mode, iter);
 		  }
 		   feasible_cur = 1; infeasibility_cur = 0;
 		   fcur = f(n, xcur, newgrad, f_data);
 		   stop->nevals++;
 		   if (nlopt_stop_forced(stop)) { 
 			fcur = HUGE_VAL; ret = NLOPT_FORCED_STOP; goto done; }
+		   if (!isfinite(fcur) && want_grad) {
+			   printf("mode=%d, grad for iter=%d is garbage\n", mode, iter);
+		   }
 		   if (isfinite(fcur)) {
 			   if (want_grad) {
 				   want_grad = 0;
+				   printf("mode=%d, grad refreshed for iter=%d\n", mode, iter);
 			   }
 			   ii = 0;
 			   for (i = 0; i < p; ++i) {
