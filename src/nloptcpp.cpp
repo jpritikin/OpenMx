@@ -114,7 +114,7 @@ void omxInvokeNLOPT(double *est, GradientOptimizerContext &goc)
 	omxState *globalState = fc->state;
 	int ncnln = globalState->ncnln;
     
-        nlopt_opt opt = nlopt_create(NLOPT_LD_SLSQP, fc->numParam);
+        nlopt_opt opt = nlopt_create(NLOPT_LD_LBFGS, fc->numParam);
 	goc.extraData = opt;
         //local_opt = nlopt_create(NLOPT_LD_SLSQP, n); // Subsidiary algorithm
         
