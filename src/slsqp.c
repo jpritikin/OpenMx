@@ -2046,12 +2046,16 @@ L190:
     *mode = line == 1 ? -2 : 1;
     goto L330;
 L200:
-    if (h1 <= h3 / ten || line > 10) {
-	goto L240;
+    if (isfinite(h1)) {
+	    if (h1 <= h3 / ten || line > 10) {
+		    goto L240;
+	    }
+	    /* Computing MAX */
+	    d__1 = h3 / (two * (h3 - h1));
+	    alpha = MAX2(d__1,alfmin);
+    } else {
+	    alpha = MAX2(alpha*.5,alfmin);
     }
-/* Computing MAX */
-    d__1 = h3 / (two * (h3 - h1));
-    alpha = MAX2(d__1,alfmin);
     goto L190;
 /*   EXACT LINESEARCH */
 L210:
@@ -2510,8 +2514,10 @@ nlopt_result nlopt_slsqp(unsigned n, nlopt_func f, void *f_data,
 		   stop->nevals++;
 		   if (nlopt_stop_forced(stop)) { 
 			fcur = HUGE_VAL; ret = NLOPT_FORCED_STOP; goto done; }
-		   if (fcur != DBL_MAX) {
-			   if (want_grad) want_grad = 0;
+		   if (isfinite(fcur)) {
+			   if (want_grad) {
+				   want_grad = 0;
+			   }
 			   ii = 0;
 			   for (i = 0; i < p; ++i) {
 				   unsigned j, k;
@@ -2588,8 +2594,8 @@ nlopt_result nlopt_slsqp(unsigned n, nlopt_func f, void *f_data,
 	  prev_mode = mode;
 
 	  /* update best point so far */
-	  if ((fcur < *minf && (feasible_cur || !feasible))
-	      || (!feasible && infeasibility_cur < infeasibility)) {
+	  if (isfinite(fcur) && ((fcur < *minf && (feasible_cur || !feasible))
+				 || (!feasible && infeasibility_cur < infeasibility))) {
 	       *minf = fcur;
 	       feasible = feasible_cur;
 	       infeasibility = infeasibility_cur;
