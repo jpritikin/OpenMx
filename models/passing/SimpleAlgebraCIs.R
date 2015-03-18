@@ -24,6 +24,8 @@ factorModel <- mxModel("One Factor", type="RAM",
     mxCI(c("P"))
 )
 factorFit <- mxRun(factorModel, intervals=FALSE)
+print(factorFit$output$evaluations)  #576
+
 factorFitCI <- mxRun(factorFit, intervals=TRUE, suppressWarnings = TRUE)
 factorSummCI <- summary(factorFitCI)
 summary(factorFitCI)
