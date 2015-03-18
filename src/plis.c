@@ -380,22 +380,21 @@ L12620:
     if (rmax == 0.) {
 	goto L11175;
     }
-L11170:
-    luksan_ps1l01__(&r__, &rp, f, &fo, &fp, &p, &po, &pp, minf_est, &maxf, &rmin, 
-	    &rmax, &tols, &tolp, &par1, &par2, &kd, &ld, &stat_1->nit, &kit, &
-	    nred, &mred, &maxst, iest, &inits, &iters, &kters, &mes,
-		    &isys, &state);
-    if (isys == 0) {
-	goto L11174;
+    while (1) {
+	    luksan_ps1l01__(&r__, &rp, f, &fo, &fp, &p, &po, &pp, minf_est, &maxf, &rmin, 
+			    &rmax, &tols, &tolp, &par1, &par2, &kd, &ld, &stat_1->nit, &kit, &
+			    nred, &mred, &maxst, iest, &inits, &iters, &kters, &mes,
+			    &isys, &state);
+	    if (isys == 0) {
+		    break;
+	    }
+	    luksan_mxudir__(nf, &r__, &s[1], &xo[1], &x[1], &ix[1], &kbf);
+	    luksan_pcbs04__(nf, &x[1], &ix[1], &xl[1], &xu[1], &eps9, &kbf);
+	    *f = objgrad(*nf, &x[1], &gf[1], objgrad_data);
+	    ++stop->nevals;
+	    ++stat_1->nfg;
+	    p = luksan_mxudot__(nf, &gf[1], &s[1], &ix[1], &kbf);
     }
-    luksan_mxudir__(nf, &r__, &s[1], &xo[1], &x[1], &ix[1], &kbf);
-    luksan_pcbs04__(nf, &x[1], &ix[1], &xl[1], &xu[1], &eps9, &kbf);
-    *f = objgrad(*nf, &x[1], &gf[1], objgrad_data);
-    ++stop->nevals;
-    ++stat_1->nfg;
-    p = luksan_mxudot__(nf, &gf[1], &s[1], &ix[1], &kbf);
-    goto L11170;
-L11174:
     if (iters <= 0) {
 	r__ = 0.;
 	*f = fo;
