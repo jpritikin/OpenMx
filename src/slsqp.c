@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "slsqp.h"
 
@@ -2641,6 +2642,7 @@ done:
 	       memcpy(x, xcur, sizeof(double)*n);
 	  }
      }
+     printf("evals=%d\n", stop->nevals);
 
      free(work);
      return ret;
