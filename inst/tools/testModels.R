@@ -100,7 +100,7 @@ errorRecover <- function(script, opt, index) {
 			c('warnRec', 'errors', 'errorRecover', 'opt', 'null', 'files', 'directories', 'runtimes')))
 }
 
-optimizers <- c('CSOLNP')
+optimizers <- c('NLOPT')
 if (!any(args == 'gctorture') && imxHasNPSOL()) optimizers <- c(optimizers, 'NPSOL')
 
 for (opt in optimizers) {
