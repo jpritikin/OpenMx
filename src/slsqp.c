@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <float.h>
 
 #include "slsqp.h"
 
@@ -2509,39 +2510,41 @@ nlopt_result nlopt_slsqp(unsigned n, nlopt_func f, void *f_data,
 		   stop->nevals++;
 		   if (nlopt_stop_forced(stop)) { 
 			fcur = HUGE_VAL; ret = NLOPT_FORCED_STOP; goto done; }
-		   if (want_grad) want_grad = 0;
-		   ii = 0;
-		   for (i = 0; i < p; ++i) {
-			   unsigned j, k;
-			   nlopt_eval_constraint(c+ii, newcgrad, h+i, n, xcur);
-			   if (nlopt_stop_forced(stop)) { 
-				   ret = NLOPT_FORCED_STOP; goto done; }
-			   for (k = 0; k < h[i].m; ++k, ++ii) {
-				   infeasibility_cur = 
-					   MAX2(infeasibility_cur, fabs(c[ii]));
-				   feasible_cur = 
-					   feasible_cur && fabs(c[ii]) <= h[i].tol[k];
-				   if (newcgrad) {
-					   for (j = 0; j < n; ++ j)
-						   cgrad[j*U(mpi1) + ii] = cgradtmp[k*n + j];
+		   if (fcur != DBL_MAX) {
+			   if (want_grad) want_grad = 0;
+			   ii = 0;
+			   for (i = 0; i < p; ++i) {
+				   unsigned j, k;
+				   nlopt_eval_constraint(c+ii, newcgrad, h+i, n, xcur);
+				   if (nlopt_stop_forced(stop)) { 
+					   ret = NLOPT_FORCED_STOP; goto done; }
+				   for (k = 0; k < h[i].m; ++k, ++ii) {
+					   infeasibility_cur = 
+						   MAX2(infeasibility_cur, fabs(c[ii]));
+					   feasible_cur = 
+						   feasible_cur && fabs(c[ii]) <= h[i].tol[k];
+					   if (newcgrad) {
+						   for (j = 0; j < n; ++ j)
+							   cgrad[j*U(mpi1) + ii] = cgradtmp[k*n + j];
+					   }
 				   }
 			   }
-		   }
-		   for (i = 0; i < m; ++i) {
-			   unsigned j, k;
-			   nlopt_eval_constraint(c+ii, newcgrad, fc+i, n, xcur);
-			   if (nlopt_stop_forced(stop)) { 
-				   ret = NLOPT_FORCED_STOP; goto done; }
-			   for (k = 0; k < fc[i].m; ++k, ++ii) {
-				   infeasibility_cur = 
-					   MAX2(infeasibility_cur, c[ii]);
-				   feasible_cur = 
-					   feasible_cur && c[ii] <= fc[i].tol[k];
-				   if (newcgrad) {
-					   for (j = 0; j < n; ++ j)
-						   cgrad[j*U(mpi1) + ii] = -cgradtmp[k*n + j];
+			   for (i = 0; i < m; ++i) {
+				   unsigned j, k;
+				   nlopt_eval_constraint(c+ii, newcgrad, fc+i, n, xcur);
+				   if (nlopt_stop_forced(stop)) { 
+					   ret = NLOPT_FORCED_STOP; goto done; }
+				   for (k = 0; k < fc[i].m; ++k, ++ii) {
+					   infeasibility_cur = 
+						   MAX2(infeasibility_cur, c[ii]);
+					   feasible_cur = 
+						   feasible_cur && c[ii] <= fc[i].tol[k];
+					   if (newcgrad) {
+						   for (j = 0; j < n; ++ j)
+							   cgrad[j*U(mpi1) + ii] = -cgradtmp[k*n + j];
+					   }
+					   c[ii] = -c[ii]; /* slsqp sign convention */
 				   }
-				   c[ii] = -c[ii]; /* slsqp sign convention */
 			   }
 		   }
 		   break;}
