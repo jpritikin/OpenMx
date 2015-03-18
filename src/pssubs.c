@@ -78,6 +78,7 @@ void luksan_pcbs04__(int *nf, double *x, int *ix,
 /*  RI  PU  DIRECTIONAL DERIVATIVE FOR R=RU. */
 /*  RO  R  VALUE OF THE STEPSIZE PARAMETER OBTAINED. */
 /*  II  MODE  MODE OF LINE SEARCH. */
+/*            MODE=1 INCREASES THE STEP SIZE, MODE=2 DECREASES IT */
 /*  II  MTYP  METHOD SELECTION. MTYP=1-BISECTION. MTYP=2-QUADRATIC */
 /*         INTERPOLATION (WITH ONE DIRECTIONAL DERIVATIVE). */
 /*         MTYP=3-QUADRATIC INTERPOLATION (WITH TWO DIRECTIONAL */
@@ -385,7 +386,15 @@ L3:
     if (*iters != 0) {
 	goto L4;
     }
-    if (*f <= *minf) {
+    if (!isfinite(*f)) {
+	*maxst = 0;
+	mode = 2;
+	mtyp = 1;
+	rl = *rmin;
+	ru = *r__;
+	--(*nred); /* don't count this iteration */
+	goto L2;
+    } else if (*f <= *minf) {
 	*iters = 7;
 	goto L4;
     } else {
