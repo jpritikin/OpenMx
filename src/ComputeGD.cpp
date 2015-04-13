@@ -52,6 +52,7 @@ public:
 	omxComputeGD();
 	virtual void initFromFrontend(omxState *, SEXP rObj);
 	virtual void computeImpl(FitContext *fc);
+	virtual omxMatrix *getFitMatrix() { return fitMatrix; };
 	virtual void reportResults(FitContext *fc, MxRList *slots, MxRList *out);
 };
 
@@ -297,6 +298,43 @@ void ComputeCI::initFromFrontend(omxState *globalState, SEXP rObj)
 
 extern "C" { void F77_SUB(npoptn)(char* string, int Rf_length); };
 
+class ciConstraintIneq : public omxConstraint {
+ private:
+	typedef omxConstraint super;
+	omxMatrix *fitMat;
+ public:
+	ciConstraintIneq(omxMatrix *fitMat) : super("CI"), fitMat(fitMat)
+	{ size=1; opCode = LESS_THAN; };
+
+	virtual void refreshAndGrab(FitContext *fc, Type ineqType, double *out) {
+		omxFitFunctionCompute(fitMat->fitFunction, FF_COMPUTE_FIT, fc);
+		const double fit = totalLogLikelihood(fitMat);
+		double diff = std::max(fit - fc->targetFit, 0.0);
+		diff *= diff;
+		if (ineqType != opCode) diff = -diff;
+		//mxLog("fit %f diff %f", fit, diff);
+		out[0] = diff;
+	};
+};
+
+class ciConstraintEq : public omxConstraint {
+ private:
+	typedef omxConstraint super;
+	omxMatrix *fitMat;
+ public:
+	ciConstraintEq(omxMatrix *fitMat) : super("CI"), fitMat(fitMat)
+	{ size=1; opCode = EQUALITY; };
+
+	virtual void refreshAndGrab(FitContext *fc, Type ineqType, double *out) {
+		omxFitFunctionCompute(fitMat->fitFunction, FF_COMPUTE_FIT, fc);
+		const double fit = totalLogLikelihood(fitMat);
+		double diff = fit - fc->targetFit;
+		diff *= diff;
+		//mxLog("fit %f diff %f", fit, diff);
+		out[0] = diff;
+	};
+};
+
 void ComputeCI::computeImpl(FitContext *mle)
 {
 	Global->unpackConfidenceIntervals();
@@ -314,6 +352,8 @@ void ComputeCI::computeImpl(FitContext *mle)
 
 	Rf_protect(intervals = Rf_allocMatrix(REALSXP, numInts, 3));
 	Rf_protect(intervalCodes = Rf_allocMatrix(INTSXP, numInts, 2));
+
+	mle->state->conList.push_back(new ciConstraintIneq(plan->getFitMatrix()));
 
 	const int ciMaxIterations = Global->ciMaxIterations;
 	FitContext fc(mle, mle->varGroup);
@@ -342,7 +382,7 @@ void ComputeCI::computeImpl(FitContext *mle)
 
 			int tries = 0;
 			int inform = INFORM_UNINITIALIZED;
-			double bestFit = std::numeric_limits<double>::max();
+			double *store = lower? &currentCI->min : &currentCI->max;
 
 			while (inform!= 0 && ++tries <= ciMaxIterations) {
 				Global->checkpointMessage(mle, mle->est, "%s[%d, %d] %s CI (try %d)",
@@ -354,23 +394,16 @@ void ComputeCI::computeImpl(FitContext *mle)
 				fc.fit = mle->fit;
 				plan->compute(&fc);
 
-				const double fitOut = fc.fit;
-
-				if (fitOut < bestFit) {
-					omxRecompute(currentCI->matrix, &fc);
-					double val = omxMatrixElement(currentCI->matrix, currentCI->row, currentCI->col);
-					if (lower) currentCI->min = val;
-					else       currentCI->max = val;
-					bestFit = fitOut;
-					if (verbose >= 2) mxLog("CI[%d,%d] bestFit %f bound %f",
-								i, lower,bestFit, val);
-				}
+				omxRecompute(currentCI->matrix, &fc);
+				double val = omxMatrixElement(currentCI->matrix, currentCI->row, currentCI->col);
+				bool better = !std::isfinite(*store) || fabs(*store - val) > 1e-5; // TODO
+				if (better) *store = val;
 
 				inform = fc.inform;
 				if (lower) currentCI->lCode = inform;
 				else       currentCI->uCode = inform;
-				if(verbose>=1) { mxLog("CI[%d,%d] inform=%d", i, lower, inform);}
-				if(inform == 0) break;
+				if(verbose>=2) { mxLog("CI[%d,%d] inform=%d", i, lower, inform);}
+				if(inform == 0 || !better) break;
 
 				bool jitter = TRUE;
 				for(int j = 0; j < n; j++) {
@@ -386,9 +419,15 @@ void ComputeCI::computeImpl(FitContext *mle)
 					}
 				}
 			}
+			if (verbose >= 1) {
+				mxLog("%s[%d, %d] %s CI %f", matName, currentCI->row + 1, currentCI->col + 1,
+				      lower? "lower" : "upper", *store);
+				fc.log(FF_COMPUTE_ESTIMATE);
+			}
 		}
 	}
 
+	mle->state->conList.pop_back(); // will leak on exception TODO
 	mle->copyParamToModel();
 
 	Eigen::Map< Eigen::ArrayXXd > interval(REAL(intervals), numInts, 3);
@@ -398,8 +437,13 @@ void ComputeCI::computeImpl(FitContext *mle)
 		omxConfidenceInterval *oCI = Global->intervalList[j];
 		omxRecompute(oCI->matrix, mle);
 		interval(j, 1) = omxMatrixElement(oCI->matrix, oCI->row, oCI->col);
-		interval(j, 0) = std::min(oCI->min, interval(j, 1));
-		interval(j, 2) = std::max(oCI->max, interval(j, 1));
+		if (1) {
+			interval(j, 0) = std::min(oCI->min, interval(j, 1));
+			interval(j, 2) = std::max(oCI->max, interval(j, 1));
+		} else {
+			interval(j, 0) = oCI->min;
+			interval(j, 2) = oCI->max;
+		}
 		intervalCode[j] = oCI->lCode;
 		intervalCode[j + numInts] = oCI->uCode;
 	}

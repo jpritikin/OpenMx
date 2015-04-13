@@ -201,6 +201,7 @@ class omxCompute {
 	omxCompute();
         virtual void initFromFrontend(omxState *, SEXP rObj);
         void compute(FitContext *fc);
+	virtual omxMatrix *getFitMatrix() { return 0; };  // this is probably a design error TODO
         virtual void computeImpl(FitContext *fc) {}
 	virtual void collectResults(FitContext *fc, LocalComputeResult *lcr, MxRList *out);
         virtual ~omxCompute();
