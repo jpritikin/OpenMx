@@ -2916,8 +2916,16 @@ double GradientOptimizerContext::solFun(double *myPars, int* mode)
 	if (fc->outsideFeasibleSet() || isErrorRaised()) {
 		*mode = -1;
 	} else {
-		feasible = true;
+		Eigen::Map< Eigen::VectorXd > Est(fc->est, fc->numParam);
+		if (!feasible) {
+			feasible = true;
+		} else {
+			double diff = (Est - prevPoint).array().abs().sum();
+			if (diff == 0) mxLog("Evaluated the same point twice");
+		}
+		prevPoint = Est;
 	}
+
 
 	return fc->fit;
 };
