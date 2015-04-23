@@ -33,22 +33,22 @@ static double nloptObjectiveFunction(unsigned n, const double *x, double *grad, 
 	GradientOptimizerContext *goc = (GradientOptimizerContext *) f_data;
 	assert(n == goc->fc->numParam);
 	int mode = 1;
+	Eigen::Map< Eigen::VectorXd > Epoint((double*) x, n);
 	double fit = goc->solFun((double*) x, &mode);
-	//if (goc->verbose >= 3 && !grad) std::cout << "fit: " << fit << "\n";
+	std::cout << "coord: " << Epoint << "\nfit: " << fit << "\n";
 	if (mode == -1) {
 		if (!goc->feasible) {
 			nlopt_opt opt = (nlopt_opt) goc->extraData;
 			nlopt_force_stop(opt);
 		}
-		return std::numeric_limits<double>::max(); // this is wrong TODO
+		return std::numeric_limits<double>::infinity(); // this is wrong TODO
 	}
 	if (!grad) return fit;
 
-	Eigen::Map< Eigen::VectorXd > Epoint((double*) x, n);
 	Eigen::Map< Eigen::VectorXd > Egrad(grad, n);
 	fit_functional ff(*goc);
 	fd_gradient(ff, Epoint, Egrad);
-	//if (goc->verbose >= 3) std::cout << "fit: " << fit << "\ngrad:\n" << Egrad << "\n";
+	std::cout << "fit: " << fit << "\ngrad:\n" << Egrad << "\n";
 	return fit;
 }
 
@@ -113,7 +113,7 @@ void omxInvokeNLOPT(double *est, GradientOptimizerContext &goc)
 	FitContext *fc = goc.fc;
 	omxState *globalState = fc->state;
     
-        nlopt_opt opt = nlopt_create(NLOPT_LD_SLSQP, fc->numParam);
+        nlopt_opt opt = nlopt_create(NLOPT_LD_CCSAQ, fc->numParam);
 	goc.extraData = opt;
         //local_opt = nlopt_create(NLOPT_LD_SLSQP, n); // Subsidiary algorithm
         
@@ -135,6 +135,7 @@ void omxInvokeNLOPT(double *est, GradientOptimizerContext &goc)
                 }
                 
                 if (eq > 0){
+			Rf_error("Not implemented");
 			goc.equality.resize(eq); // TODO remove
 			std::vector<double> tol(eq, sqrt(std::numeric_limits<double>::epsilon()));
 			nlopt_add_equality_mconstraint(opt, eq, nloptEqualityFunction, &goc, tol.data());

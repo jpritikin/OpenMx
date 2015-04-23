@@ -45,7 +45,7 @@
 #include "mma.h"
 #include "nlopt-util.h"
 
-unsigned ccsa_verbose = 0; /* > 0 for verbose output */
+unsigned ccsa_verbose = 2; /* > 0 for verbose output */
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
