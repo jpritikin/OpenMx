@@ -40,7 +40,8 @@ uniRegModelRaw <- mxModel("FIML Univariate Regression of y on x1",
     mxPath(from="one", to=manifests, 
            arrows=1, free=TRUE, values=.1, 
            labels=c("MeanX1", "MeanY")),
-    mxData(observed=multiData1, type="raw")
+			  mxData(observed=multiData1, type="raw"),
+			  mxFitFunctionML(fellner=TRUE)
     )
 
 uniRegModelRawOut <- mxRun(uniRegModelRaw, suppressWarnings=TRUE)
