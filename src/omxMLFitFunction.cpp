@@ -301,7 +301,6 @@ void omxInitMLFitFunction(omxFitFunction* oo)
 	oo->computeFun = omxCallMLFitFunction;
 	oo->destructFun = omxDestroyMLFitFunction;
 	oo->addOutput = addOutput;
-	oo->populateAttrFun = omxPopulateMLAttributes;
 
 	omxData* dataMat = oo->expectation->data;
 
@@ -333,6 +332,7 @@ void omxInitMLFitFunction(omxFitFunction* oo)
 
 	MLFitState *newObj = new MLFitState;
 	oo->argStruct = (void*)newObj;
+	oo->populateAttrFun = omxPopulateMLAttributes;
 
 	if(OMX_DEBUG) { mxLog("Processing Observed Covariance."); }
 	newObj->observedCov = omxDataCovariance(dataMat);

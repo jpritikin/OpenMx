@@ -17,16 +17,103 @@
 
 // Named in honor of Fellner (1987) "Sparse matrices, and the
 // estimation of variance components by likelihood methods"
+// Fellner was probably the first to apply sparse matrix algorithms
+// to this kind of problem.
 
 #include "glue.h"
+#include <iterator>
+#include <Rconfig.h>
+#include <Rmath.h>
+#include <RcppEigenCholmod.h>
+#include <RcppEigenStubs.h>
 #include <Eigen/Core>
+#include <Eigen/SparseCore>
+#include <Eigen/CholmodSupport>
 #include "omxFitFunction.h"
 
-#include <stan/math/prim/mat/err/check_ldlt_factor.hpp>
-#include <stan/math/prim/mat/fun/log_determinant_ldlt.hpp>
-#include <stan/math/prim/mat/fun/quad_form.hpp>
-
 namespace FellnerFitFunction {
+	// Based on lme4CholmodDecomposition.h from lme4
+	template<typename _MatrixType, int _UpLo = Eigen::Lower>
+	class Cholmod : public Eigen::CholmodDecomposition<_MatrixType, _UpLo> {
+	private:
+		Eigen::MatrixXd ident;
+
+	protected:
+		typedef Eigen::CholmodDecomposition<_MatrixType, _UpLo> Base;
+		using Base::m_factorizationIsOk;
+
+	        cholmod_factor* factor() const { return Base::m_cholmodFactor; }
+		cholmod_common& cholmod() const {
+			return const_cast<Cholmod<_MatrixType, _UpLo>*>(this)->Base::cholmod();
+		}
+
+     // * If you are going to factorize hundreds or more matrices with the same
+     // * nonzero pattern, you may wish to spend a great deal of time finding a
+     // * good permutation.  In this case, try setting Common->nmethods to 9.
+     // * The time spent in cholmod_analysis will be very high, but you need to
+     // * call it only once. TODO
+
+	public:
+		double log_determinant() const {
+			// Based on https://github.com/njsmith/scikits-sparse/blob/master/scikits/sparse/cholmod.pyx
+			cholmod_factor *cf = factor();
+			if (cf->xtype == CHOLMOD_PATTERN) Rf_error("Cannot extract diagonal from symbolic factor");
+			double logDet = 0;
+			double *x = (double*) cf->x;
+			if (cf->is_super) {
+				// This is a supernodal factorization, which is stored as a bunch
+				// of dense, lower-triangular, column-major arrays packed into the
+				// x vector. This is not documented in the CHOLMOD user-guide, or
+				// anywhere else as far as I can tell; I got the details from
+				// CVXOPT's C/cholmod.c.
+
+				int *super = (int*) cf->super;
+				int *pi = (int*) cf->pi;
+				int *px = (int*) cf->px;
+				for (size_t sx=0; sx < cf->nsuper; ++sx) {
+					int ncols = super[sx + 1] - super[sx];
+					int nrows = pi[sx + 1] - pi[sx];
+					for (int cx=px[sx]; cx < px[sx] + nrows * ncols; cx += nrows+1) {
+						logDet += log(x[cx]);
+					}
+				}
+			} else {
+				// This is a simplicial factorization, which is simply stored as a
+				// sparse CSC matrix in x, p, i. We want the diagonal, which is
+				// just the first entry in each column; p gives the offsets in x to
+				// the beginning of each column.
+				//
+				// The ->p array actually has n+1 entries, but only the first n
+				// entries actually point to real columns (the last entry is a
+				// sentinel)
+				int *p = (int*) cf->p;
+				for (size_t ex=0; ex < cf->n; ++ex) {
+					logDet += log( x[p[ex]] );
+				}
+			}
+			if (cf->is_ll) {
+				logDet *= 2.0;
+			}
+			return logDet;
+		};
+
+		template<typename MB>
+		double inv_quad_form(const Eigen::MatrixBase<MB> &vec) {
+			eigen_assert(m_factorizationIsOk && "The decomposition is not in a valid state for solving, you must first call either compute() or symbolic()/numeric()");
+			eigen_assert((Base::Index)(factor()->n) == vec.rows());
+			if (ident.rows() != vec.rows()) {
+				ident.setIdentity(vec.rows(), vec.rows());
+			}
+			cholmod_dense b_cd(viewAsCholmod(ident));
+			cholmod_dense* x_cd = cholmod_solve(CHOLMOD_A, factor(), &b_cd, &cholmod());
+			if(!x_cd) throw std::runtime_error("cholmod_solve failed");
+			Eigen::Map< Eigen::MatrixXd > iA((double*) x_cd->x, vec.rows(), vec.rows());
+			double ans = vec.transpose() * iA.selfadjointView<Eigen::Lower>() * vec;
+			cholmod_free_dense(&x_cd, &cholmod());
+			return ans;
+		};
+	};
+
 	struct state {
 		omxMatrix *smallRow;
 		int totalNotMissing;
@@ -36,24 +123,23 @@ namespace FellnerFitFunction {
 		omxMatrix *means;
 		omxMatrix *smallCov;
 		omxMatrix *smallMeans;
-		Eigen::MatrixXd fullCov; // sparse? TODO
+		Eigen::SparseMatrix<double> fullCov;
+		Cholmod< Eigen::SparseMatrix<double> > covDecomp;
 		Eigen::VectorXd fullMeans;
 	};
 	
 	static void compute(omxFitFunction *oo, int want, FitContext *fc)
 	{
-		using stan::math::check_ldlt_factor;
-		static const char *function("FellnerFitFunction::compute");
-
 		if (want & (FF_COMPUTE_PREOPTIMIZE)) return;
+		if (!(want & (FF_COMPUTE_FIT | FF_COMPUTE_INITIAL_FIT))) Rf_error("Not implemented");
 
-		state *st                   = (state *) oo->argStruct;
-		omxExpectation *expectation = oo->expectation;
-		omxData *data               = expectation->data;
-		omxMatrix *cov              = st->cov;
-		omxMatrix *means            = st->means;
-		Eigen::MatrixXd &fullCov    = st->fullCov;
-		Eigen::VectorXd &fullMeans  = st->fullMeans;
+		state *st                               = (state *) oo->argStruct;
+		omxExpectation *expectation             = oo->expectation;
+		omxData *data                           = expectation->data;
+		omxMatrix *cov                          = st->cov;
+		omxMatrix *means                        = st->means;
+		Eigen::SparseMatrix<double> &fullCov    = st->fullCov;
+		Eigen::VectorXd &fullMeans              = st->fullMeans;
 
 		Eigen::VectorXi contRemove(cov->cols);
 		Eigen::VectorXd oldDefs;
@@ -82,29 +168,48 @@ namespace FellnerFitFunction {
 			EigenMatrixAdaptor smallCov(st->smallCov);
 
 			fullMeans.segment(filteredPos, st->smallCov->rows) = smallMeans;
-			fullCov.block(filteredPos, filteredPos, st->smallCov->rows, st->smallCov->rows) = smallCov;
+			for (int sr=0; sr < smallCov.rows(); ++sr) {
+				for (int sc=0; sc <= sr; ++sc) {
+					fullCov.coeffRef(filteredPos + sr, filteredPos + sc) = smallCov(sr,sc);
+				}
+			}
 			filteredPos += st->smallCov->rows;
 		}
 
-		//mxPrintMat("mean", fullMeans);
-		//mxPrintMat("cov", fullCov);
-
-		double lp;
+		double lp = NA_REAL;
 		try {
-			stan::math::LDLT_factor<double,Eigen::Dynamic,Eigen::Dynamic> ldlt_Sigma(fullCov);
-			check_ldlt_factor(function, "LDLT_Factor of covariance parameter", ldlt_Sigma);
-			Eigen::MatrixXd isigma;
-			ldlt_Sigma.inverse(isigma);
-			
-			lp = log_determinant_ldlt(ldlt_Sigma);
+			st->covDecomp.analyzePattern(fullCov);
+			st->covDecomp.factorize(fullCov);
+			lp = st->covDecomp.log_determinant();
 			Eigen::VectorXd resid = st->data - fullMeans;
-			lp += stan::math::quad_form(isigma, resid);
-			lp += log(2 * M_PI) * st->totalNotMissing;
+			double iqf = st->covDecomp.inv_quad_form(resid);
+			lp += iqf;
+			lp += M_LN_2PI * st->totalNotMissing;
 		} catch (const std::exception& e) {
-			lp = NA_REAL;
 			if (fc) fc->recordIterationError("%s: %s", oo->name(), e.what());
 		}
 		oo->matrix->data[0] = lp;
+	}
+
+	static void popAttr(omxFitFunction *oo, SEXP algebra)
+	{
+		// use Eigen_cholmod_wrap to return a sparse matrix? TODO
+		// always return it?
+
+		/*
+		state *st                               = (state *) oo->argStruct;
+		SEXP expCovExt, expMeanExt;
+		if (st->fullCov.rows() > 0) {
+			Rf_protect(expCovExt = Rf_allocMatrix(REALSXP, expCovInt->rows, expCovInt->cols));
+			memcpy(REAL(expCovExt), expCovInt->data, sizeof(double) * expCovInt->rows * expCovInt->cols);
+			Rf_setAttrib(algebra, Rf_install("expCov"), expCovExt);
+		}
+
+		if (expMeanInt && expMeanInt->rows > 0) {
+			Rf_protect(expMeanExt = Rf_allocMatrix(REALSXP, expMeanInt->rows, expMeanInt->cols));
+			memcpy(REAL(expMeanExt), expMeanInt->data, sizeof(double) * expMeanInt->rows * expMeanInt->cols);
+			Rf_setAttrib(algebra, Rf_install("expMean"), expMeanExt);
+			}   */
 	}
 
 	static void destroy(omxFitFunction *oo)
@@ -143,6 +248,7 @@ void InitFellnerFitFunction(omxFitFunction *oo)
 
 	oo->computeFun = FellnerFitFunction::compute;
 	oo->destructFun = FellnerFitFunction::destroy;
+	oo->populateAttrFun = FellnerFitFunction::popAttr;
 	FellnerFitFunction::state *st = new FellnerFitFunction::state;
 	oo->argStruct = st;
 
