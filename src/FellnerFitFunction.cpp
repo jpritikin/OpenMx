@@ -31,6 +31,8 @@
 #include <Eigen/CholmodSupport>
 #include "omxFitFunction.h"
 
+// New Expectation API : per case to full distribution adapter TODO
+
 namespace FellnerFitFunction {
 	// Based on lme4CholmodDecomposition.h from lme4
 	template<typename _MatrixType, int _UpLo = Eigen::Lower>
@@ -100,7 +102,6 @@ namespace FellnerFitFunction {
 		template<typename MB>
 		double inv_quad_form(const Eigen::MatrixBase<MB> &vec) {
 			eigen_assert(m_factorizationIsOk && "The decomposition is not in a valid state for solving, you must first call either compute() or symbolic()/numeric()");
-			eigen_assert((Base::Index)(factor()->n) == vec.rows());
 			if (ident.rows() != vec.rows()) {
 				ident.setIdentity(vec.rows(), vec.rows());
 			}
@@ -176,6 +177,63 @@ namespace FellnerFitFunction {
 			filteredPos += st->smallCov->rows;
 		}
 
+		for (size_t vx=0; vx < expectation->varying.size(); ++vx) {
+			varyBy &vb = expectation->varying[vx];
+			if (!omxDataColumnIsFactor(data, vb.factorCol)) {
+				Rf_error("Column %s (%d) is not a factor",
+					 omxDataColumnName(data, vb.factorCol), vb.factorCol);
+			}
+			omxExpectationCompute(vb.model, NULL);
+			omxMatrix *cov = omxGetExpectationComponent(vb.model, "unfilteredCov");
+			omxMatrix *Zspec = vb.model->Zmatrix;
+
+			// intersect(colnames(m1$bySubject$Z), colnames(sleepstudy))
+			std::vector<int> ZtoDataMap;
+			ZtoDataMap.assign(Zspec->cols, -1);
+			for (int zx=0; zx < Zspec->cols; ++zx) {
+				for (int dc=0; dc < data->cols; ++dc) {
+					if (strEQ(omxDataColumnName(data, dc), Zspec->colnames[zx])) {
+						ZtoDataMap[zx] = dc;
+						//mxLog("map %d to %d", zx, dc);
+					}
+				}
+			}
+
+			int levels = omxDataGetNumFactorLevels(data, vb.factorCol);
+			std::vector<bool> curLevelMask;
+			curLevelMask.resize(data->rows);
+			for (int lx=1; lx <= levels; ++lx) {
+				int numAtLevel = 0;
+				for (int rx=0; rx < data->rows; ++rx) {
+					bool yes = omxIntDataElement(data, rx, vb.factorCol) == lx;
+					curLevelMask[rx] = yes;
+					numAtLevel += yes;
+				}
+				Eigen::MatrixXd Zmat(Zspec->rows * numAtLevel, Zspec->cols);
+				int zr=0;
+				for (int rx=0; rx < data->rows; ++rx) {
+					if (!curLevelMask[rx]) continue;
+
+					for (int col=0; col < Zspec->cols; ++col) {
+						double val = (ZtoDataMap[col] == -1? 1 :
+							      omxDoubleDataElement(data, rx, ZtoDataMap[col]));
+						for (int dx=0; dx < Zspec->rows; ++dx) {
+							Zmat(zr+dx, col) = val;
+						}
+					}
+					EigenMatrixAdaptor eZspec(Zspec);
+					Zmat.block(zr, 0, Zspec->rows, Zspec->cols).array() *= eZspec.array();
+					zr += Zspec->rows;
+				}
+				EigenMatrixAdaptor ecov(cov);
+				mxPrintMat("ecov", ecov);
+				mxPrintMat("Z", Zmat);
+				Eigen::MatrixXd V = Zmat * ecov * Zmat.transpose();
+				mxPrintMat("V", V);
+				Rf_error("pause");
+			}
+		}
+
 		double lp = NA_REAL;
 		try {
 			st->covDecomp.analyzePattern(fullCov);
@@ -229,13 +287,13 @@ void InitFellnerFitFunction(omxFitFunction *oo)
 		omxRaiseErrorf("%s cannot fit without a model expectation", oo->fitType);
 		return;
 	}
-	omxMatrix *cov = omxGetExpectationComponent(expectation, oo, "cov");
+	omxMatrix *cov = omxGetExpectationComponent(expectation, "cov");
 	if(cov == NULL) { 
 		omxRaiseError("No covariance expectation in FIML evaluation.");
 		return;
 	}
 
-	omxMatrix *means = omxGetExpectationComponent(expectation, oo, "means");
+	omxMatrix *means = omxGetExpectationComponent(expectation, "means");
 	if(means == NULL) { 
 		omxRaiseError("No means model in FIML evaluation.");
 		return;

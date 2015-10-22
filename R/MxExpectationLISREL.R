@@ -307,6 +307,8 @@ setMethod("genericExpFunConvert", signature("MxExpectationLISREL"),
 		.Object@AL <- imxLocateIndex(flatModel, alMatrix, name)
 		.Object@data <- as.integer(imxLocateIndex(flatModel, data, name))
 		
+		.Object <- convertVaryByClause(.Object, flatModel, mxDataObject)
+
 		#
 		# Check the data has row and column names as appropriate
 		verifyObservedNames(mxDataObject@observed, mxDataObject@means, mxDataObject@type, flatModel, modelname, "LISREL")
