@@ -107,7 +107,7 @@ omxMatrix* omxGetNormalExpectationComponent(omxExpectation* ox, const char* comp
 	omxNormalExpectation* one = (omxNormalExpectation*)(ox->argStruct);
 	omxMatrix* retval = NULL;
 
-	if(strEQ("cov", component)) {
+	if (strEQ("cov", component) || strEQ("unfilteredCov", component)) {
 		retval = one->cov;
 	} else if(strEQ("means", component)) {
 		retval = one->means;
