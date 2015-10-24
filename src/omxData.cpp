@@ -875,7 +875,7 @@ static void markDefVarDependencies(omxState* os, omxDefinitionVar* defVar)
 
 int omxData::handleDefinitionVarList(omxState *state, int row, double* oldDefs)
 {
-	if(OMX_DEBUG_ROWS(row)) { mxLog("Processing Definition Vars."); }
+	if(OMX_DEBUG_ROWS(row)) { mxLog("Processing Definition Vars for row %d", row); }
 	
 	int numVarsFilled = 0;
 
@@ -916,7 +916,7 @@ void omxDefinitionVar::loadData(omxState *state, double val)
 		omxMatrix *matrix = state->matrixList[matrixNumber];
 		omxSetMatrixElement(matrix, matrow, matcol, val);
 		if (OMX_DEBUG) {
-			mxLog("Load fake data %f into %s[%d,%d], state[%d]",
+			mxLog("Load data %f into %s[%d,%d], state[%d]",
 			      val, matrix->name(), matrow, matcol, state->getId());
 		}
 	}

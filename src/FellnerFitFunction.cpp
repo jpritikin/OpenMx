@@ -177,27 +177,17 @@ namespace FellnerFitFunction {
 			filteredPos += st->smallCov->rows;
 		}
 
+		if(0){Eigen::MatrixXd tmp = fullCov.block(0,0,8,8);
+			mxPrintMat("R", tmp);}
+
 		for (size_t vx=0; vx < expectation->varying.size(); ++vx) {
 			varyBy &vb = expectation->varying[vx];
 			if (!omxDataColumnIsFactor(data, vb.factorCol)) {
 				Rf_error("Column %s (%d) is not a factor",
 					 omxDataColumnName(data, vb.factorCol), vb.factorCol);
 			}
-			omxExpectationCompute(vb.model, NULL);
 			omxMatrix *cov = omxGetExpectationComponent(vb.model, "unfilteredCov");
 			omxMatrix *Zspec = vb.model->Zmatrix;
-
-			// intersect(colnames(m1$bySubject$Z), colnames(sleepstudy))
-			std::vector<int> ZtoDataMap;
-			ZtoDataMap.assign(Zspec->cols, -1);
-			for (int zx=0; zx < Zspec->cols; ++zx) {
-				for (int dc=0; dc < data->cols; ++dc) {
-					if (strEQ(omxDataColumnName(data, dc), Zspec->colnames[zx])) {
-						ZtoDataMap[zx] = dc;
-						//mxLog("map %d to %d", zx, dc);
-					}
-				}
-			}
 
 			int levels = omxDataGetNumFactorLevels(data, vb.factorCol);
 			std::vector<bool> curLevelMask;
@@ -210,29 +200,45 @@ namespace FellnerFitFunction {
 					numAtLevel += yes;
 				}
 				Eigen::MatrixXd Zmat(Zspec->rows * numAtLevel, Zspec->cols);
+				Eigen::VectorXd voldDefs;
+				voldDefs.resize(vb.model->data->defVars.size());
+				voldDefs.setConstant(NA_REAL);
 				int zr=0;
 				for (int rx=0; rx < data->rows; ++rx) {
 					if (!curLevelMask[rx]) continue;
-
-					for (int col=0; col < Zspec->cols; ++col) {
-						double val = (ZtoDataMap[col] == -1? 1 :
-							      omxDoubleDataElement(data, rx, ZtoDataMap[col]));
-						for (int dx=0; dx < Zspec->rows; ++dx) {
-							Zmat(zr+dx, col) = val;
-						}
-					}
+					vb.model->data->handleDefinitionVarList(oo->matrix->currentState, rx, voldDefs.data());
+					omxRecompute(Zspec, fc);
 					EigenMatrixAdaptor eZspec(Zspec);
-					Zmat.block(zr, 0, Zspec->rows, Zspec->cols).array() *= eZspec.array();
+					//mxPrintMat("Zspec", eZspec);
+					Zmat.block(zr, 0, Zspec->rows, Zspec->cols).array() = eZspec.array();
 					zr += Zspec->rows;
 				}
 				EigenMatrixAdaptor ecov(cov);
-				mxPrintMat("ecov", ecov);
-				mxPrintMat("Z", Zmat);
-				Eigen::MatrixXd V = Zmat * ecov * Zmat.transpose();
-				mxPrintMat("V", V);
-				Rf_error("pause");
+				//mxPrintMat("Z", Zmat);
+				//mxPrintMat("G", ecov);
+				Eigen::MatrixXd ZGZ = Zmat * ecov.selfadjointView<Eigen::Lower>() * Zmat.transpose();
+				//mxPrintMat("ZGZ", ZGZ.block(0,0,8,8));
+				for (int r1=0,v1=0; r1 < data->rows; ++r1) {
+					if (!curLevelMask[r1]) continue;
+					for (int r2=0,v2=0; r2 <= r1; ++r2) {
+						if (!curLevelMask[r2]) continue;
+						for (int b1=0; b1 < Zspec->rows; ++b1) {
+							for (int b2=0; b2 < Zspec->rows; ++b2) {
+								double val = ZGZ(Zspec->rows * v1 + b1, Zspec->rows * v2 + b2);
+								if (val == 0) continue;
+								fullCov.coeffRef(Zspec->rows * r1 + b1,
+										 Zspec->rows * r2 + b2) += val;
+							}
+						}
+						++v2;
+					}
+					++v1;
+				}
 			}
 		}
+
+		if(0){Eigen::MatrixXd tmp = fullCov.block(0,0,8,8);
+			mxPrintMat("V", tmp);}
 
 		double lp = NA_REAL;
 		try {
@@ -246,6 +252,7 @@ namespace FellnerFitFunction {
 		} catch (const std::exception& e) {
 			if (fc) fc->recordIterationError("%s: %s", oo->name(), e.what());
 		}
+		//mxLog("%f", lp);
 		oo->matrix->data[0] = lp;
 	}
 
